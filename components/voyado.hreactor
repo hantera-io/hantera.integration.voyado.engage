@@ -1,0 +1,115 @@
+let baseUrl |> registry->'externalServices/voyado/baseUrl'
+let apiKey |> registry->'externalServices/voyado/apiKey'
+
+let HttpResponse200: {
+  statusCode: 200
+  contentType: text
+  content: text
+}
+
+let HttpResponse404: {
+  statusCode: 404
+  contentType: text
+  content: text
+}
+
+let findContactByEmail(email: text) =>
+  httpGet($'{baseUrl}/api/v3/contacts/id?email={email}')
+  with {
+    headers = {
+      'User-Agent' -> 'Hantera'
+      'apikey' -> $'{apiKey}'
+      'Content-Type' -> 'application/json'
+    }
+  } then res => return (
+    res match
+      HttpResponse200 |>
+        res.content fromJson match
+          text |> res.content
+  )
+
+let getOrder(orderId: uuid) =>
+
+  // Get current order state
+  let orderQuery = query {
+    edge = 'orders'
+    filter = $'orderId == {orderId}'
+    node = {
+      fields = ['invoiceAddress']
+    }
+  }
+
+  // Extract order state from query result
+  from orderQuery match
+    QueryError |> nothing
+    |>
+      orderQuery.nodes
+      first
+
+let buildOrder(order, contact) =>
+  {
+    contact = contact
+  }
+
+from {
+  createOrUpdateOrder = (orderId: uuid) =>
+// TODO Send all deliveries
+    let order = getOrder(orderId)
+
+    let mapOrder (order, delivery) => { }
+      // Perform default mapping (buildOrder) and pass to configured mapper (if configured)
+      // Custom mapper can extend the incoming value, query graph for additional data etc.
+
+    let postOrders (contactId: text) =>
+      // Foreach delivery:
+
+      httpPost($'{baseUrl}/api/v2/orders')
+      with {
+        headers = {
+          'User-Agent' -> 'Hantera'
+          'apikey' -> $'{apiKey}'
+          'Content-Type' -> 'application/json'
+        }
+        body = mapOrder(order, { }) with {
+          contact = {
+            matchKeyType = 'ContactId'
+            matchKey = contactId
+          }
+        }
+      }
+
+    from order match
+      nothing |> return 'Order not found'
+
+      // Attempt to find contact by email
+      |> findContactByEmail(order.invoiceAddress.email)
+        // then res => res match
+        //   HttpResponse200 |> postOrders(res.content fromJson)
+
+        //   // TODO Find by phone
+        //   HttpResponse404 |> return 'Contact not found'
+        //   |> return 'Error when trying to find contact'
+
+
+}
+
+// from {
+//   recentOrder = (args) =>
+//     let test = query {
+//       edge = 'orders'
+//       node = {
+//         fields = ['orderNumber']
+//       }
+//     }
+
+//     from return (
+//       test match
+//         QueryError |> 'Error'
+//         |>
+//           test.nodes
+//           select r => r.orderNumber
+//           first
+//     )
+
+//   createOrUpdateOrder = 
+// }

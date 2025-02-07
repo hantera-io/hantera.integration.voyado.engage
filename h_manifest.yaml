@@ -1,0 +1,11 @@
+uri: /resources/components/voyado/voyado.hreactor
+spec:
+  displayName: 'Voyado Integration Reactor'
+  description: Reactor for Voyado
+  runtime: reactor
+  componentVersion: 1.0.0
+  codeFile: './components/voyado.hreactor'
+---
+uri: /resources/reactors/voyado
+spec:
+  componentId: voyado/voyado.hreactor
