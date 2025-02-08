@@ -1,44 +1,44 @@
 let baseUrl |> registry->'externalServices/voyado/baseUrl'
 let apiKey |> registry->'externalServices/voyado/apiKey'
 
-let HttpResponse200: {
-  statusCode: 200
-  contentType: text
-  content: text
-}
-
-let HttpResponse404: {
-  statusCode: 404
-  contentType: text
-  content: text
-}
-
-let findContactByEmail(email: text) =>
-  httpGet($'{baseUrl}/api/v3/contacts/id?email={email}')
-  with {
-    headers = {
-      'User-Agent' -> 'Hantera'
-      'apikey' -> $'{apiKey}'
-      'Content-Type' -> 'application/json'
+let findContact(email: text) =>
+  web.http(
+    $'{baseUrl}/api/v3/contacts/id?email={email}'
+    {
+      headers = {
+        'User-Agent' -> 'Hantera'
+        'apikey' -> $'{apiKey}'
+        'Content-Type' -> 'application/json'
+      }
     }
-  } then res => return (
-    res match
-      HttpResponse200 |>
-        res.content fromJson match
-          text |> res.content
-  )
+   ) match
+    (res: HttpResponseOk) |> res.content
 
 let getOrder(orderId: uuid) =>
-
   // Get current order state
   let orderQuery = query {
     edge = 'orders'
     filter = $'orderId == {orderId}'
     node = {
       fields = ['invoiceAddress']
+      navigate = [{
+        edge = 'deliveries'
+        count = true
+        node = {
+          fields = [
+            'deliveryId'
+            'deliveryNumber'
+          ]
+          navigate = [{
+            edge = 'orderLines'
+            node = {
+              fields = ['productNumber']
+            }
+          }]
+        }
+      }]
     }
   }
-
   // Extract order state from query result
   from orderQuery match
     QueryError |> nothing
@@ -46,70 +46,47 @@ let getOrder(orderId: uuid) =>
       orderQuery.nodes
       first
 
-let buildOrder(order, contact) =>
+
+let defaultOrderMap(contactId, order, delivery) =>
   {
-    contact = contact
+    contact = {
+      matchKeyType = 'ContactId'
+      matchKey = contactId
+    }
   }
 
 from {
   createOrUpdateOrder = (orderId: uuid) =>
-// TODO Send all deliveries
+
     let order = getOrder(orderId)
 
-    let mapOrder (order, delivery) => { }
-      // Perform default mapping (buildOrder) and pass to configured mapper (if configured)
-      // Custom mapper can extend the incoming value, query graph for additional data etc.
-
-    let postOrders (contactId: text) =>
-      // Foreach delivery:
-
-      httpPost($'{baseUrl}/api/v2/orders')
-      with {
-        headers = {
-          'User-Agent' -> 'Hantera'
-          'apikey' -> $'{apiKey}'
-          'Content-Type' -> 'application/json'
-        }
-        body = mapOrder(order, { }) with {
-          contact = {
-            matchKeyType = 'ContactId'
-            matchKey = contactId
-          }
-        }
-      }
+    let mapOrder (contactId, order, delivery) =>
+      defaultOrderMap(contactId, order, delivery)
+      // Pass to custom mapper (if configured)
+      // Custom mapper must access a record with any fields and a deliveryId
+      // Custom mapper can extend the incoming value (using with), query graph for additional data etc.
 
     from order match
-      nothing |> return 'Order not found'
-
-      // Attempt to find contact by email
-      |> findContactByEmail(order.invoiceAddress.email)
-        // then res => res match
-        //   HttpResponse200 |> postOrders(res.content fromJson)
-
-        //   // TODO Find by phone
-        //   HttpResponse404 |> return 'Contact not found'
-        //   |> return 'Error when trying to find contact'
-
+      nothing |> 'Order not found'
+      when order.deliveries.totalCount == 0 |> 'No deliveries on order'
+      |> findContact(order.invoiceAddress.email) match
+        (contactId: text) |>
+          order.deliveries.nodes
+          select d =>
+            web.http(
+              $'{baseUrl}/api/v2/orders'
+              {
+                method = 'POST'
+                headers = {
+                  'User-Agent' -> 'Hantera'
+                  'apikey' -> $'{apiKey}'
+                  'Content-Type' -> 'application/json'
+                }
+                body = mapOrder(contactId, order, d)
+              }
+            ) match
+              HttpResponseOk |> $'Exported delivery {d.deliveryNumber}'
+              (res: HttpResponse) |> $'Failed to export delivery {d.deliveryNumber}: ({res.content})'
+        |> 'Contact not found'
 
 }
-
-// from {
-//   recentOrder = (args) =>
-//     let test = query {
-//       edge = 'orders'
-//       node = {
-//         fields = ['orderNumber']
-//       }
-//     }
-
-//     from return (
-//       test match
-//         QueryError |> 'Error'
-//         |>
-//           test.nodes
-//           select r => r.orderNumber
-//           first
-//     )
-
-//   createOrUpdateOrder = 
-// }
