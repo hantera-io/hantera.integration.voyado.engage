@@ -20,7 +20,11 @@ let getOrder(orderId: uuid) =>
     edge = 'orders'
     filter = $'orderId == {orderId}'
     node = {
-      fields = ['invoiceAddress']
+      fields = [
+        'orderState'
+        'currencyCode'
+        'invoiceAddress'
+      ]
       navigate = [{
         edge = 'deliveries'
         count = true
@@ -28,11 +32,29 @@ let getOrder(orderId: uuid) =>
           fields = [
             'deliveryId'
             'deliveryNumber'
+            'deliveryState'
           ]
           navigate = [{
             edge = 'orderLines'
             node = {
-              fields = ['productNumber']
+              fields = [
+                'productNumber'
+                'description'
+                'orderLineTotal'
+                'quantity'
+                'image'
+              ]
+            }
+          }]
+        }
+      },{
+        edge = 'paymentCaptures'
+        node = {
+          fields = ['amount']
+          navigate = [{
+            edge = 'payment'
+            node = {
+              fields = ['providerKey']
             }
           }]
         }
@@ -46,13 +68,70 @@ let getOrder(orderId: uuid) =>
       orderQuery.nodes
       first
 
-
 let defaultOrderMap(contactId, order, delivery) =>
-  {
+
+  let orderStatus = order.orderState match
+    'pending' |> 'Pending'
+    'cancelled' |> 'Cancelled'
+    'confirmed' |> delivery.deliveryState match
+      'completed' |> 'Shipped'
+      'cancelled' |> 'Cancelled'
+      |> 'Confirmed'
+    'completed' |> 'Shipped'
+  
+  let paymentMethods =
+    order.paymentCaptures.nodes
+    select (c: {
+      amount: number
+      payment: {
+        providerKey: text
+      }
+    }) => {
+      description = c.payment.providerKey
+      value = c.amount
+    }
+
+  let items =
+    delivery.orderLines.nodes
+    select (line: {
+      productNumber: text
+      description: text
+      quantity: number
+      orderLineTotal: number
+      image: text
+    }) => {
+      sku = line.productNumber
+      quantity = line.quantity
+      grossPaidPrice = line.orderLineTotal
+      description = line.description
+      imageUrl = line.image
+      // TODO targetUrl = 
+    }
+
+  from {
     contact = {
       matchKeyType = 'ContactId'
       matchKey = contactId
     }
+    orderNumber = delivery.deliveryNumber
+    orderStatus = orderStatus
+    paymentStatus = 'Paid'
+    createdDate = delivery.createdAt
+    // TODO shippedDate = 
+    storeId = 'TODO'
+    currency = order.currencyCode
+    paymentMethods = paymentMethods
+    items = items
+  }
+
+let withTotalGrossPrice (voyadoOrder) |>
+  voyadoOrder with {
+    totalGrossPrice =
+      voyadoOrder.items
+      select (i: {
+        grossPaidPrice: number
+      }) => i.grossPaidPrice
+      sum
   }
 
 from {
@@ -82,7 +161,7 @@ from {
                   'apikey' -> $'{apiKey}'
                   'Content-Type' -> 'application/json'
                 }
-                body = mapOrder(contactId, order, d)
+                body = mapOrder(contactId, order, d) withTotalGrossPrice
               }
             ) match
               HttpResponseOk |> $'Exported delivery {d.deliveryNumber}'
