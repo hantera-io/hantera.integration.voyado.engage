@@ -16,56 +16,21 @@ let findContact(email: text) =>
 
 let getOrder(orderId: uuid) =>
   // Get current order state
-  let orderQuery = query {
-    edge = 'orders'
-    filter = $'orderId == {orderId}'
-    node = {
-      fields = [
-        'orderState'
-        'currencyCode'
-        'invoiceAddress'
-      ]
-      navigate = [{
-        edge = 'deliveries'
-        count = true
-        node = {
-          fields = [
-            'deliveryId'
-            'deliveryNumber'
-            'deliveryState'
-          ]
-          navigate = [{
-            edge = 'orderLines'
-            node = {
-              fields = [
-                'productNumber'
-                'description'
-                'orderLineTotal'
-                'quantity'
-                'image'
-              ]
-            }
-          }]
-        }
-      },{
-        edge = 'paymentCaptures'
-        node = {
-          fields = ['amount']
-          navigate = [{
-            edge = 'payment'
-            node = {
-              fields = ['providerKey']
-            }
-          }]
-        }
-      }]
-    }
-  }
+  let orderQuery =
+    query orders(orderState, currencyCode, invoiceAddress)
+    filter $'orderId == {orderId}'
+    navigate
+      deliveries(deliveryId, deliveryNumber, deliveryState)
+      navigate orderLines(productNumber, description, orderLineTotal, quantity, image)
+    navigate
+      paymentCaptures(amount)
+      navigate payment(providerKey)
+  
   // Extract order state from query result
   from orderQuery match
     QueryError |> nothing
     |>
-      orderQuery.nodes
+      orderQuery
       first
 
 let defaultOrderMap(contactId, order, delivery) =>
@@ -80,7 +45,7 @@ let defaultOrderMap(contactId, order, delivery) =>
     'completed' |> 'Shipped'
   
   let paymentMethods =
-    order.paymentCaptures.nodes
+    order.paymentCaptures
     select (c: {
       amount: number
       payment: {
@@ -92,7 +57,7 @@ let defaultOrderMap(contactId, order, delivery) =>
     }
 
   let items =
-    delivery.orderLines.nodes
+    delivery.orderLines
     select (line: {
       productNumber: text
       description: text
@@ -147,10 +112,10 @@ from {
 
     from order match
       nothing |> 'Order not found'
-      when order.deliveries.totalCount == 0 |> 'No deliveries on order'
+      when (order.deliveries count) == 0 |> 'No deliveries on order'
       |> findContact(order.invoiceAddress.email) match
         (contactId: text) |>
-          order.deliveries.nodes
+          order.deliveries
           select d =>
             web.http(
               $'{baseUrl}/api/v2/orders'
