@@ -12,11 +12,27 @@ let confirmedOrder = input is {
     }
   }
 
+let completedDeliveries =
+  input.before.deliveries as before
+  join right input.order.deliveries as delivery on deliveryId
+  where i => i is (:not {deliveryState: 'completed'}, :{deliveryState: 'completed'})
+  select i => i.delivery.deliveryId
+
 from
   confirmedOrder then
     effects.common.schedule(
       'voyado.engage.orders'
       'confirmedOrder'
       input.order.orderId
-      now
+      now + 10 seconds // Give 10 seconds for contact to sync
+    )
+
+from
+  completedDeliveries
+  select deliveryid =>
+    effects.common.schedule(
+      'voyado.engage.orders'
+      'completedDelivery'
+      deliveryid
+      now + 10 seconds // Give 10 seconds for contact to sync
     )

@@ -14,8 +14,8 @@ let findContact(email: text) =>
    ) match
     (res: HttpResponseOk) |> res.content
 
+// Query used for confirmedOrder export
 let getOrder(orderId: uuid) =>
-  // Get current order state
   let orderQuery =
     query orders(orderNumber, orderState, currencyCode, invoiceAddress, createdAt)
     filter $'orderId == {orderId}'
@@ -42,72 +42,108 @@ let getOrder(orderId: uuid) =>
       )
       navigate calculatedDiscounts(value)
     navigate
-      paymentCaptures(amount)
-      navigate payment(providerKey)
-  
-  // Extract order state from query result
+      payments(providerKey, authorizedAmount, capturedBalance)
   from orderQuery match
     QueryError |> nothing
     |>
       orderQuery
       first
 
+// Query used for completedDelivery export
+let getDelivery(deliveryId: uuid) =>
+  let deliveryQuery =
+    query deliveries(
+      deliveryId
+      deliveryNumber
+      createdAt
+      deliveryState
+      shippingTotal
+      shippingPrice
+      shippingTaxFactor
+      shippingTaxTotal
+    )
+    filter $'deliveryId == {deliveryId}'
+    navigate
+      order(
+        orderNumber
+        orderState
+        currencyCode
+        invoiceAddress
+        createdAt
+      )
+      navigate
+        payments(providerKey, authorizedAmount, capturedBalance)
+    navigate
+      orderLines(
+        productNumber
+        description
+        orderLineTotal
+        quantity
+        image
+        taxTotal
+        taxFactor
+      )
+      navigate calculatedDiscounts(value)
+  from deliveryQuery match
+    QueryError |> nothing
+    |>
+      deliveryQuery
+      first
+
+let mapOrderLines (orderLines) =>
+  orderLines
+  select line =>
+    let totalDiscounts =
+      line.calculatedDiscounts
+      select d => d.value
+      sum
+
+    from {
+      type = 'Purchase'
+      sku = line.productNumber
+      quantity = line.quantity
+      grossPaidPrice = line.orderLineTotal
+      grossPaidPricePerUnit = line.orderLineTotal / line.quantity
+      originalPricePerUnit = (line.orderLineTotal + totalDiscounts) / line.quantity
+      description = line.description match
+        nothing |> 'Product'
+        (d: text) |> d
+      imageUrl = line.image
+      // TODO targetUrl = 
+      taxAmount = line.taxTotal
+      taxPercent = line.taxFactor * 100
+      totalDiscount = totalDiscounts
+      extraData = { }
+    }
+
+let mapShippingLine(delivery) =>
+  {
+    type = 'Purchase'
+    sku = 'Shipping'
+    description = 'Shipping'
+    quantity = 1
+    grossPaidPrice = delivery.shippingTotal
+    grossPaidPricePerUnit = delivery.shippingTotal
+    originalPricePerUnit = delivery.shippingPrice
+    totalDiscount = delivery.shippingPrice - delivery.shippingTotal
+    taxAmount = delivery.shippingTaxTotal
+    taxPercent = delivery.shippingTaxFactor * 100
+  }
+
 let mapConfirmedOrder(contactId, order) =>
 
   let paymentMethods =
-    order.paymentCaptures
-    select (c: {
-      amount: number
-      payment: {
-        providerKey: text
-      }
-    }) => {
-      description = c.payment.providerKey
-      value = c.amount
+    order.payments
+    select p => {
+      description = p.providerKey
+      value = p.authorizedAmount + p.capturedBalance
     }
-
-  let orderLines =
-    order.orderLines
-    select line =>
-      let totalDiscounts =
-        line.calculatedDiscounts
-        select d => d.value
-        sum
-
-      from {
-        type = 'Purchase'
-        sku = line.productNumber
-        quantity = line.quantity
-        grossPaidPrice = line.orderLineTotal
-        grossPaidPricePerUnit = line.orderLineTotal / line.quantity
-        originalPricePerUnit = (line.orderLineTotal + totalDiscounts) / line.quantity
-        description = line.description match
-          nothing |> 'Product'
-          (d: text) |> d
-        imageUrl = line.image
-        // TODO targetUrl = 
-        taxAmount = line.taxTotal
-        taxPercent = line.taxFactor * 100
-        totalDiscount = totalDiscounts
-        extraData = { }
-      }
 
   let shippingLines =
     order.deliveries
-    select delivery => {
-      type = 'Purchase'
-      sku = 'Shipping'
-      description = 'Shipping'
-      quantity = 1
-      grossPaidPrice = delivery.shippingTotal
-      grossPaidPricePerUnit = delivery.shippingTotal
-      originalPricePerUnit = delivery.shippingPrice
-      totalDiscount = delivery.shippingPrice - delivery.shippingTotal
-      taxAmount = delivery.shippingTaxTotal
-      taxPercent = delivery.shippingTaxFactor * 100
-    }
+    select delivery => mapShippingLine(delivery)
 
-  let items = [orderLines, shippingLines] flatten
+  let items = [mapOrderLines(order.orderLines), shippingLines] flatten
 
   from {
     contact = {
@@ -118,10 +154,37 @@ let mapConfirmedOrder(contactId, order) =>
     orderStatus = 'Confirmed'
     paymentStatus = 'Paid'
     createdDate = order.createdAt
-    // TODO shippedDate = 
     // TODO: 
     storeId = 'eCom-Sverige'
     currency = order.currencyCode
+    paymentMethods = paymentMethods
+    items = items
+  }
+
+let mapCompletedDelivery(contactId, delivery) =>
+
+  let paymentMethods =
+    delivery.order.payments
+    select p => {
+      description = p.providerKey
+      value = p.authorizedAmount + p.capturedBalance
+    }
+
+  let items = [mapOrderLines(delivery.orderLines), [mapShippingLine(delivery)]] flatten
+
+  from {
+    contact = {
+      matchKeyType = 'ContactId'
+      matchKey = contactId
+    }
+    orderNumber = delivery.order.orderNumber
+    orderStatus = 'Shipped'
+    paymentStatus = 'Paid'
+    createdDate = delivery.order.createdAt
+    shippedDate = now // This might be slightly inaccurate. Consider passing from rule.
+    // TODO: 
+    storeId = 'eCom-Sverige'
+    currency = delivery.order.currencyCode
     paymentMethods = paymentMethods
     items = items
   }
@@ -144,7 +207,7 @@ from {
     from order match
       nothing |> 'Order not found'
       when order.orderState == 'pending' |> 'Can not export pending order'
-      when (order.orderLines count) == 0 |> 'No orderlines on order'
+      when (order.orderLines count) == 0 |> 'No order lines on order'
       |> findContact(order.invoiceAddress.email) match
         (contactId: text) |>
           web.http(
@@ -161,6 +224,34 @@ from {
           ) match
             HttpResponseOk |> $'Exported order {order.orderNumber}'
             (res: HttpResponse) |> $'Failed to export order {order.orderNumber}: ({res.content})'
+        // TODO Retry 5 times with 10 sec interval:
         |> 'Contact not found'
 
+  completedDelivery = (deliveryId: uuid) =>
+
+    let delivery = getDelivery(deliveryId)
+
+    from delivery match
+      nothing |> 'Delivery not found'
+      when delivery.deliveryState != 'completed' |>
+        'Delivery must be completed, current state: ' + delivery.deliveryState
+      when (delivery.orderLines count) == 0 |> 'No order lines on delivery'
+      |> findContact(delivery.order.invoiceAddress.email) match
+        (contactId: text) |>
+          web.http(
+            $'{baseUrl}/api/v2/orders'
+            {
+              method = 'POST'
+              headers = {
+                'User-Agent' -> 'Hantera'
+                'apikey' -> $'{apiKey}'
+                'Content-Type' -> 'application/json'
+              }
+              body = mapCompletedDelivery(contactId, delivery) withTotalGrossPrice
+            }
+          ) match
+            HttpResponseOk |> $'Exported delivery {delivery.deliveryNumber}'
+            (res: HttpResponse) |> $'Failed to export delivery {delivery.deliveryNumber}: ({res.content})'
+        // TODO Retry 5 times with 10 sec interval:
+        |> 'Contact not found'
 }
