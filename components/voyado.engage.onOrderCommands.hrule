@@ -1,0 +1,22 @@
+param input: OnOrderCommands
+
+let returnWhenTrue (condition: bool, result) when condition |> result
+let then (condition: bool) |> (result: value) => (condition, result) returnWhenTrue
+
+let confirmedOrder = input is {
+    before: {
+      orderState: not 'confirmed'
+    }
+    order: {
+      orderState: 'confirmed'
+    }
+  }
+
+from
+  confirmedOrder then
+    effects.common.schedule(
+      'voyado.engage.orders'
+      'confirmedOrder'
+      input.order.orderId
+      now
+    )

@@ -1,11 +1,25 @@
-uri: /resources/components/voyado/voyado.hreactor
+uri: /resources/components/voyado/voyado.engage.orders.hreactor
 spec:
-  displayName: 'Voyado Integration Reactor'
+  displayName: 'voyado.engage.orders.hreactor'
   description: Reactor for Voyado
   runtime: reactor
   componentVersion: 1.0.0
-  codeFile: './components/voyado.hreactor'
+  codeFile: './components/voyado.engage.orders.hreactor'
 ---
-uri: /resources/reactors/voyado
+uri: /resources/components/voyado/voyado.engage.onOrderCommands.hrule
 spec:
-  componentId: voyado/voyado.hreactor
+  displayName: voyado.engage.onOrderCommands.hrule
+  description: Rule for Voyado
+  runtime: rule
+  componentVersion: 1.0.0
+  codeFile: './components/voyado.engage.onOrderCommands.hrule'
+---
+uri: /resources/reactors/voyado.engage.orders
+spec:
+  componentId: voyado/voyado.engage.orders.hreactor
+---
+uri: /resources/rules/voyado.engage.onOrderCommands
+spec:
+  displayName: Voyado Engage Integration
+  components:
+  - componentId: voyado/voyado.engage.onOrderCommands.hrule
