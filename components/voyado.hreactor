@@ -20,8 +20,27 @@ let getOrder(orderId: uuid) =>
     query orders(orderState, currencyCode, invoiceAddress)
     filter $'orderId == {orderId}'
     navigate
-      deliveries(deliveryId, deliveryNumber, deliveryState)
-      navigate orderLines(productNumber, description, orderLineTotal, quantity, image)
+      deliveries(
+        deliveryId
+        deliveryNumber
+        createdAt
+        deliveryState
+        shippingTotal
+        shippingPrice
+        shippingTaxFactor
+        shippingTaxTotal
+      )
+      navigate
+        orderLines(
+          productNumber
+          description
+          orderLineTotal
+          quantity
+          image
+          taxTotal
+          taxFactor
+        )
+        navigate calculatedDiscounts(value)
     navigate
       paymentCaptures(amount)
       navigate payment(providerKey)
@@ -36,7 +55,6 @@ let getOrder(orderId: uuid) =>
 let defaultOrderMap(contactId, order, delivery) =>
 
   let orderStatus = order.orderState match
-    'pending' |> 'Pending'
     'cancelled' |> 'Cancelled'
     'confirmed' |> delivery.deliveryState match
       'completed' |> 'Shipped'
@@ -56,22 +74,46 @@ let defaultOrderMap(contactId, order, delivery) =>
       value = c.amount
     }
 
-  let items =
+  let orderLines =
     delivery.orderLines
-    select (line: {
-      productNumber: text
-      description: text
-      quantity: number
-      orderLineTotal: number
-      image: text
-    }) => {
-      sku = line.productNumber
-      quantity = line.quantity
-      grossPaidPrice = line.orderLineTotal
-      description = line.description
-      imageUrl = line.image
-      // TODO targetUrl = 
-    }
+    select line =>
+      let totalDiscounts =
+        line.calculatedDiscounts
+        select d => d.value
+        sum
+
+      from {
+        type = 'Purchase'
+        sku = line.productNumber
+        quantity = line.quantity
+        grossPaidPrice = line.orderLineTotal
+        grossPaidPricePerUnit = line.orderLineTotal / line.quantity
+        originalPricePerUnit = (line.orderLineTotal + totalDiscounts) / line.quantity
+        description = line.description match
+          nothing |> 'Product'
+          (d: text) |> d
+        imageUrl = line.image
+        // TODO targetUrl = 
+        taxAmount = line.taxTotal
+        taxPercent = line.taxFactor * 100
+        totalDiscount = totalDiscounts
+        extraData = { }
+      }
+
+  let shippingLines = [{
+    type = 'Purchase'
+    sku = 'Shipping'
+    description = 'Shipping'
+    quantity = 1
+    grossPaidPrice = delivery.shippingTotal
+    grossPaidPricePerUnit = delivery.shippingTotal
+    originalPricePerUnit = delivery.shippingPrice
+    totalDiscount = delivery.shippingPrice - delivery.shippingTotal
+    taxAmount = delivery.shippingTaxTotal
+    taxPercent = delivery.shippingTaxFactor * 100
+  }]
+
+  let items = [orderLines, shippingLines] flatten
 
   from {
     contact = {
@@ -83,7 +125,8 @@ let defaultOrderMap(contactId, order, delivery) =>
     paymentStatus = 'Paid'
     createdDate = delivery.createdAt
     // TODO shippedDate = 
-    storeId = 'TODO'
+    // TODO: 
+    storeId = 'eCom-Sverige'
     currency = order.currencyCode
     paymentMethods = paymentMethods
     items = items
@@ -106,12 +149,10 @@ from {
 
     let mapOrder (contactId, order, delivery) =>
       defaultOrderMap(contactId, order, delivery)
-      // Pass to custom mapper (if configured)
-      // Custom mapper must access a record with any fields and a deliveryId
-      // Custom mapper can extend the incoming value (using with), query graph for additional data etc.
 
     from order match
       nothing |> 'Order not found'
+      when order.orderState == 'pending' |> 'Can not export pending order'
       when (order.deliveries count) == 0 |> 'No deliveries on order'
       |> findContact(order.invoiceAddress.email) match
         (contactId: text) |>
