@@ -1,3 +1,21 @@
+/*
+ * Voyado Engage Receipts Reactor
+ *
+ * This reactor integrates with Voyado Engage's Receipts (v3) API.
+ * It exports invoices and is scheduled by the voyado.engage.orders.onOrderCommands
+ * rule. It supports purchases as well as returns.
+ *
+ * Receipts have a couple of fields that you may want to modify based on your
+ * business needs. See comments below.
+ *
+ * IMPORTANT NOTICE
+ * When testing, transactions will not immediately show up on the contact. Instead,
+ * you will see a record in Voyado Engage's Integration log along the lines of
+ * "1 Xml-file(s) generated for import". This means that Engage has queued up the
+ * transaction to be processed in the next batch, which often happens withing 15
+ * minutes or so.
+ */
+
 let baseUrl |> registry->'externalServices/voyado/baseUrl'
 let apiKey |> registry->'externalServices/voyado/apiKey'
 
@@ -75,6 +93,10 @@ let mapInvoice(contactId, invoice) =>
           sku = line.productNumber
           articleNumber = line.productNumber defaultValue
           articleName = line.description defaultValue
+          // Implement your own logic as needed:
+          marginPercent = 0
+          packQuantity = 0
+          awardsBonus = false
         }
 
   let returnItems =
@@ -95,6 +117,10 @@ let mapInvoice(contactId, invoice) =>
           sku = line.productNumber
           articleNumber = line.productNumber defaultValue
           articleName = line.description defaultValue
+          // Implement your own logic as needed:
+          marginPercent = 0
+          packQuantity = 0
+          awardsBonus = false
         }
 
   let items = [purchaseItems, returnItems] flatten
@@ -109,7 +135,8 @@ let mapInvoice(contactId, invoice) =>
     createdDate = invoice.createdAt
     storeExternalId = 'eCom-Sverige'
     currency = invoice.order.currencyCode
-    // TODO exchangeRateToGroupCurrency
+    // TODO
+    exchangeRateToGroupCurrency = 1
     totalGrossPrice = invoice.invoiceTotal
     paymentMethods = paymentMethods
     items = items

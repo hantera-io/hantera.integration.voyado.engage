@@ -1,3 +1,19 @@
+/*
+ * Voyado Engage Orders Reactor
+ *
+ * This reactor integrates with Voyado Engage's Orders (v2) API.
+ * It has two methods, one for exporting Hantera Orders. This is done when an order
+ * reaches Confirmed state (scheduled by voyado.engage.onOrderCommands rule). This
+ * order can be used to automate delivery notifications to customers inside Voydao
+ * Engage by starting automating when "Order status = Confirmed".
+ *
+ * As Voyado Engage's Order model does not support multiple deliveries the same way
+ * Hantera does, shipped deliveries are exported as separate orders in the other
+ * method. This method is called when a Delivery reaches the Completed state and
+ * can be used to automate delivery notifications to customers inside Voydao Engage
+ * by starting automating when "Order status = Shipped".
+ */
+
 let baseUrl |> registry->'externalServices/voyado/baseUrl'
 let apiKey |> registry->'externalServices/voyado/apiKey'
 
@@ -14,6 +30,10 @@ let findContact(email: text) =>
    ) match
     (res: HttpResponseOk) |> res.content
 
+let defaultValue (input) |> (val) => input match
+  nothing |> val
+  |> input
+
 // Query used for confirmedOrder export
 let getOrder(orderId: uuid) =>
   let orderQuery =
@@ -25,6 +45,8 @@ let getOrder(orderId: uuid) =>
         deliveryNumber
         createdAt
         deliveryState
+        shippingProductNumber
+        shippingDescription
         shippingTotal
         shippingPrice
         shippingTaxFactor
@@ -105,22 +127,22 @@ let mapOrderLines (orderLines) =>
       grossPaidPrice = line.orderLineTotal
       grossPaidPricePerUnit = line.orderLineTotal / line.quantity
       originalPricePerUnit = (line.orderLineTotal + totalDiscounts) / line.quantity
-      description = line.description match
-        nothing |> 'Product'
-        (d: text) |> d
+      description = line.description defaultValue('Product')
       imageUrl = line.image
-      // TODO targetUrl = 
+      // Provide your own lookup for product page URL:
+      // targetUrl = 
       taxAmount = line.taxTotal
       taxPercent = line.taxFactor * 100
       totalDiscount = totalDiscounts
+      // Add additional extra data as you need:
       extraData = { }
     }
 
 let mapShippingLine(delivery) =>
   {
     type = 'Purchase'
-    sku = 'Shipping'
-    description = 'Shipping'
+    sku = delivery.shippingProductNumber defaultValue('Shipping')
+    description = delivery.shippingDescription defaultValue('Shipping')
     quantity = 1
     grossPaidPrice = delivery.shippingTotal
     grossPaidPricePerUnit = delivery.shippingTotal
