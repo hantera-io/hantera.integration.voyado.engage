@@ -12,8 +12,8 @@
  * When testing, transactions will not immediately show up on the contact. Instead,
  * you will see a record in Voyado Engage's Integration log along the lines of
  * "1 Xml-file(s) generated for import". This means that Engage has queued up the
- * transaction to be processed in the next batch, which often happens withing 15
- * minutes or so.
+ * transaction to be processed in the next batch, which seems to happen once per
+ * hour.
  */
 
 let baseUrl |> registry->'externalServices/voyado/baseUrl'
@@ -36,6 +36,11 @@ let defaultValue (input) |> input match
   nothing |> '-'
   |> input
 
+let getStoreId(channelKey) =>
+  let map = registry->'externalServices/voyado/storeMap'
+  from map match
+    { text -> value} |> map->channelKey
+
 let getInvoice(invoiceId: uuid) =>
   let invoiceQuery =
     query invoices(
@@ -56,7 +61,7 @@ let getInvoice(invoiceId: uuid) =>
         productNumber
         description
       )
-    navigate order(currencyCode, taxIncluded)
+    navigate order(currencyCode, taxIncluded, channelKey)
     navigate
       paymentCaptures(amount)
       navigate payment(providerKey)
@@ -133,7 +138,7 @@ let mapInvoice(contactId, invoice) =>
     uniqueReceiptId = invoice.invoiceId
     receiptNumber = invoice.invoiceNumber
     createdDate = invoice.createdAt
-    storeExternalId = 'eCom-Sverige'
+    storeExternalId = getStoreId(invoice.order.channelKey)
     currency = invoice.order.currencyCode
     // TODO
     exchangeRateToGroupCurrency = 1
@@ -182,6 +187,7 @@ from {
         (contactId: text) |>
           {
             body = mapInvoice(contactId, invoice)
+            storeMap = registry->'externalServices/voyado/storeMap'
             invoice = invoice
           }
         // TODO Retry 5 times with 10 sec interval:

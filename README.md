@@ -12,6 +12,10 @@ The files in the repository is explained below:
 
   This manifest installs the integration.
   
+- `/config.h_manifest.yaml`
+
+  Template for configurations
+  
 - `/components/voyado.engage.onOrderCommands.hreactor`
 
   This rule component captures events in Hantera and schedules the appropriate jobs.
@@ -26,10 +30,22 @@ The files in the repository is explained below:
 
 ## Getting started
 
-The code contains mapping for standard features and should work out-of-the-box. To quickly get started, simply apply the `h_manifest.yaml` file to your installation using [Hantera CLI](https://developer.hantera.io/learn/hantera-cli/):
+The code contains mapping for standard features and should work out-of-the-box. To quickly get started, start by editing `config.h_manifest.yaml` and apply it to your installation using [Hantera CLI](https://developer.hantera.io/learn/hantera-cli/):
+
+```bash
+h_ manage apply config.h_manifest.yaml
+``` 
+
+Then apply the `h_manifest.yaml` manifest:
 
 ```bash
 h_ manage apply h_manifest.yaml
+```
+
+The integration will fetch your Voyado Engage base URL and API key from the registry. Store them as secrets using the CLI:
+
+```bash
+
 ```
 
 ## Support

@@ -34,10 +34,22 @@ let defaultValue (input) |> (val) => input match
   nothing |> val
   |> input
 
+let getStoreId(channelKey) =>
+  let map = registry->'/resources/registry/externalServices/voyado/storeMap'
+  from map match
+    { } |> map->channelKey
+
 // Query used for confirmedOrder export
 let getOrder(orderId: uuid) =>
   let orderQuery =
-    query orders(orderNumber, orderState, currencyCode, invoiceAddress, createdAt)
+    query orders(
+      orderNumber
+      orderState
+      currencyCode
+      invoiceAddress
+      createdAt
+      channelKey
+    )
     filter $'orderId == {orderId}'
     navigate
       deliveries(
@@ -92,6 +104,7 @@ let getDelivery(deliveryId: uuid) =>
         currencyCode
         invoiceAddress
         createdAt
+        channelKey
       )
       navigate
         payments(providerKey, authorizedAmount, capturedBalance)
@@ -176,8 +189,7 @@ let mapConfirmedOrder(contactId, order) =>
     orderStatus = 'Confirmed'
     paymentStatus = 'Paid'
     createdDate = order.createdAt
-    // TODO: 
-    storeId = 'eCom-Sverige'
+    storeId = getStoreId(order.channelKey)
     currency = order.currencyCode
     paymentMethods = paymentMethods
     items = items
@@ -204,8 +216,7 @@ let mapCompletedDelivery(contactId, delivery) =>
     paymentStatus = 'Paid'
     createdDate = delivery.order.createdAt
     shippedDate = now // This might be slightly inaccurate. Consider passing from rule.
-    // TODO: 
-    storeId = 'eCom-Sverige'
+    storeId = getStoreId(delivery.order.channelKey)
     currency = delivery.order.currencyCode
     paymentMethods = paymentMethods
     items = items

@@ -1,0 +1,18 @@
+###############
+# Configuration
+###############
+
+uri: /resources/registry/externalServices/voyado/baseUrl
+spec:
+  value: ''
+---
+uri: /resources/registry/externalServices/voyado/apiKey
+spec:
+  value: ''
+  isSecret: true
+---
+# Map channelKey to Voyado Engage Store's External Id
+uri: /resources/registry/externalServices/voyado/storeMap
+spec:
+  value:
+    myChannel: voyado-store-id
