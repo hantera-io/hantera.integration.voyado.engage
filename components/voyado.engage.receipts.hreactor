@@ -1,7 +1,7 @@
 /*
  * Voyado Engage Receipts Reactor
  *
- * This reactor integrates with Voyado Engage's Receipts (v3) API.
+ * This reactor integrates with Voyado Engage's Receipts (v2) API.
  * It exports invoices and is scheduled by the voyado.engage.orders.onOrderCommands
  * rule. It supports purchases as well as returns.
  *
@@ -148,9 +148,24 @@ let mapInvoice(contactId, invoice) =>
   }
 
 from {
-  create = (invoiceId: uuid) =>
+  create = (opts: {
+    invoiceId: uuid
+    attempt: nothing|number
+  }) =>
 
-    let invoice = getInvoice(invoiceId)
+    let invoice = getInvoice(opts.invoiceId)
+
+    let retry (attempt:number) =>
+      let jobId = resources.scheduleJob(
+        'voyado.engage.receipts'
+        'create'
+        {
+          invoiceId = opts.invoiceId
+          attempt = attempt
+        }
+        now + 10 seconds
+      )
+      from $'Contact not found, retrying ({attempt}): {jobId}'
 
     from invoice match
       nothing |> 'Invoice not found'
@@ -159,7 +174,7 @@ from {
       |> findContact(invoice.invoiceAddress.email) match
         (contactId: text) |>
           web.http(
-            $'{baseUrl}/api/v3/receipts'
+            $'{baseUrl}/api/v2/receipts'
             {
               method = 'POST'
               headers = {
@@ -172,12 +187,17 @@ from {
           ) match
             HttpResponseOk |> $'Exported invoice {invoice.invoiceNumber}'
             (res: HttpResponse) |> $'Failed to export invoice {invoice.invoiceNumber}: ({res.content})'
-        // TODO Retry 5 times with 10 sec interval:
-        |> 'Contact not found'
+        |> opts.attempt match
+          nothing |> retry(2)
+          when opts.attempt < 5 |> retry (opts.attempt + 1)
+          |> 'Contact not found, giving up'
 
-  debug = (invoiceId: uuid) =>
+  debug = (opts: {
+    invoiceId: uuid
+    attempt: nothing|number
+  }) =>
 
-    let invoice = getInvoice(invoiceId)
+    let invoice = getInvoice(opts.invoiceId)
 
     from invoice match
       nothing |> 'Invoice not found'
@@ -186,10 +206,10 @@ from {
       |> findContact(invoice.invoiceAddress.email) match
         (contactId: text) |>
           {
+            attempt = opts.attempt
             body = mapInvoice(contactId, invoice)
             storeMap = registry->'externalServices/voyado/storeMap'
             invoice = invoice
           }
-        // TODO Retry 5 times with 10 sec interval:
         |> 'Contact not found'
 }

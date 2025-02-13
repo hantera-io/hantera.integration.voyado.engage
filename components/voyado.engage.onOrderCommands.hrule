@@ -23,7 +23,9 @@ from
     effects.common.schedule(
       'voyado.engage.orders'
       'confirmedOrder'
-      input.order.orderId
+      {
+        orderId = input.order.orderId
+      }
       now + 10 seconds // Give 10 seconds for contact to sync
     )
 
@@ -35,11 +37,13 @@ let newInvoices =
 
 from
   completedDeliveries
-  select deliveryid =>
+  select deliveryId =>
     effects.common.schedule(
       'voyado.engage.orders'
       'completedDelivery'
-      deliveryid
+      {
+        deliveryId = deliveryId
+      }
       now + 10 seconds // Give 10 seconds for contact to sync
     )
 
@@ -49,6 +53,8 @@ from
     effects.common.schedule(
       'voyado.engage.receipts'
       'create'
-      inv.invoiceId
+      {
+        invoiceId = inv.invoiceId
+      }
       now + 10 seconds // Give 10 seconds for contact to sync
     )

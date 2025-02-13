@@ -233,9 +233,24 @@ let withTotalGrossPrice (voyadoOrder) |>
   }
 
 from {
-  confirmedOrder = (orderId: uuid) =>
+  confirmedOrder = (opts: {
+    orderId: uuid
+    attempt: nothing|number
+  }) =>
 
-    let order = getOrder(orderId)
+    let order = getOrder(opts.orderId)
+
+    let retry (attempt:number) =>
+      let jobId = resources.scheduleJob(
+        'voyado.engage.orders'
+        'confirmedOrder'
+        {
+          orderId = opts.orderId
+          attempt = attempt
+        }
+        now + 10 seconds
+      )
+      from $'Contact not found, retrying ({attempt}/5): {jobId}'
 
     from order match
       nothing |> 'Order not found'
@@ -257,12 +272,29 @@ from {
           ) match
             HttpResponseOk |> $'Exported order {order.orderNumber}'
             (res: HttpResponse) |> $'Failed to export order {order.orderNumber}: ({res.content})'
-        // TODO Retry 5 times with 10 sec interval:
-        |> 'Contact not found'
+        |> opts.attempt match
+          nothing |> retry(2)
+          when opts.attempt < 5 |> retry (opts.attempt + 1)
+          |> 'Contact not found, giving up'
 
-  completedDelivery = (deliveryId: uuid) =>
+  completedDelivery = (opts: {
+    deliveryId: uuid
+    attempt: nothing|number
+  }) =>
 
-    let delivery = getDelivery(deliveryId)
+    let delivery = getDelivery(opts.deliveryId)
+
+    let retry (attempt:number) =>
+      let jobId = resources.scheduleJob(
+        'voyado.engage.orders'
+        'completedDelivery'
+        {
+          deliveryId = opts.deliveryId
+          attempt = attempt
+        }
+        now + 10 seconds
+      )
+      from $'Contact not found, retrying ({attempt}): {jobId}'
 
     from delivery match
       nothing |> 'Delivery not found'
@@ -285,6 +317,8 @@ from {
           ) match
             HttpResponseOk |> $'Exported delivery {delivery.deliveryNumber}'
             (res: HttpResponse) |> $'Failed to export delivery {delivery.deliveryNumber}: ({res.content})'
-        // TODO Retry 5 times with 10 sec interval:
-        |> 'Contact not found'
+        |> opts.attempt match
+          nothing |> retry(2)
+          when opts.attempt < 5 |> retry (opts.attempt + 1)
+          |> 'Contact not found, giving up'
 }
