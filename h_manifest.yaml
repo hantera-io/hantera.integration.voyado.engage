@@ -1,3 +1,7 @@
+###############
+# Orders Reactor
+###############
+
 uri: /resources/components/voyado/voyado.engage.orders.hreactor
 spec:
   displayName: 'voyado.engage.orders.hreactor'
@@ -6,6 +10,32 @@ spec:
   componentVersion: 1.0.0
   codeFile: './components/voyado.engage.orders.hreactor'
 ---
+uri: /resources/reactors/voyado.engage.orders
+spec:
+  componentId: voyado/voyado.engage.orders.hreactor
+---
+
+###############
+# Receipts Reactor
+###############
+
+uri: /resources/components/voyado/voyado.engage.receipts.hreactor
+spec:
+  displayName: 'voyado.engage.receipts.hreactor'
+  description: Reactor for Voyado
+  runtime: reactor
+  componentVersion: 1.0.0
+  codeFile: './components/voyado.engage.receipts.hreactor'
+---
+uri: /resources/reactors/voyado.engage.receipts
+spec:
+  componentId: voyado/voyado.engage.receipts.hreactor
+---
+
+###############
+# Rules
+###############
+
 uri: /resources/components/voyado/voyado.engage.onOrderCommands.hrule
 spec:
   displayName: voyado.engage.onOrderCommands.hrule
@@ -13,10 +43,6 @@ spec:
   runtime: rule
   componentVersion: 1.0.0
   codeFile: './components/voyado.engage.onOrderCommands.hrule'
----
-uri: /resources/reactors/voyado.engage.orders
-spec:
-  componentId: voyado/voyado.engage.orders.hreactor
 ---
 uri: /resources/rules/voyado.engage.onOrderCommands
 spec:

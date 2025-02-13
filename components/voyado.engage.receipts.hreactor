@@ -1,0 +1,162 @@
+let baseUrl |> registry->'externalServices/voyado/baseUrl'
+let apiKey |> registry->'externalServices/voyado/apiKey'
+
+let findContact(email: text) =>
+  web.http(
+    $'{baseUrl}/api/v3/contacts/id?email={email}'
+    {
+      headers = {
+        'User-Agent' -> 'Hantera'
+        'apikey' -> $'{apiKey}'
+        'Content-Type' -> 'application/json'
+      }
+    }
+   ) match
+    (res: HttpResponseOk) |> res.content
+
+let defaultValue (input) |> input match
+  nothing |> '-'
+  |> input
+
+let getInvoice(invoiceId: uuid) =>
+  let invoiceQuery =
+    query invoices(
+      invoiceId
+      invoiceNumber
+      isCancelled
+      invoiceAddress
+      createdAt
+      invoiceTotal
+    )
+    filter $'invoiceId == {invoiceId}'
+    navigate
+      invoiceLines(
+        invoiceLineNumber
+        invoiceLineTotal
+        unit
+        taxFactor
+        productNumber
+        description
+      )
+    navigate order(currencyCode, taxIncluded)
+    navigate
+      paymentCaptures(amount)
+      navigate payment(providerKey)
+  from invoiceQuery match
+    QueryError |> nothing
+    |>
+      invoiceQuery
+      first
+
+let mapInvoice(contactId, invoice) =>
+
+  let paymentMethods =
+    invoice.paymentCaptures
+    select p => {
+      description = p.payment.providerKey
+      value = p.amount
+    }
+
+  let purchaseItems =
+    invoice.invoiceLines
+    where line => line.invoiceLineTotal >= 0
+    select line =>
+      let taxAmount = invoice.order.taxIncluded match
+        true |> line.invoiceLineTotal - (line.invoiceLineTotal / (1 + line.taxFactor))
+        |> line.invoiceLineTotal * line.taxFactor
+
+      from
+        {
+          type = 'PURCHASE'
+          quantity = line.unit.quantity
+          grossPaidPrice = line.invoiceLineTotal
+          taxAmount = taxAmount
+          taxPercent = line.taxFactor * 100
+          sku = line.productNumber
+          articleNumber = line.productNumber defaultValue
+          articleName = line.description defaultValue
+        }
+
+  let returnItems =
+    invoice.invoiceLines
+    where line => line.invoiceLineTotal < 0
+    select line =>
+      let taxAmount = invoice.order.taxIncluded match
+        true |> line.invoiceLineTotal - (line.invoiceLineTotal / (1 + line.taxFactor))
+        |> line.invoiceLineTotal * line.taxFactor
+
+      from
+        {
+          type = 'RETURN'
+          quantity = line.unit.quantity * -1
+          grossPaidPrice = line.invoiceLineTotal * -1
+          taxAmount = taxAmount * -1
+          taxPercent = line.taxFactor * 100
+          sku = line.productNumber
+          articleNumber = line.productNumber defaultValue
+          articleName = line.description defaultValue
+        }
+
+  let items = [purchaseItems, returnItems] flatten
+
+  from {
+    contact = {
+      matchKeyType = 'contactId'
+      matchKey = contactId
+    }
+    uniqueReceiptId = invoice.invoiceId
+    receiptNumber = invoice.invoiceNumber
+    createdDate = invoice.createdAt
+    storeExternalId = 'eCom-Sverige'
+    currency = invoice.order.currencyCode
+    // TODO exchangeRateToGroupCurrency
+    totalGrossPrice = invoice.invoiceTotal
+    paymentMethods = paymentMethods
+    items = items
+  }
+
+from {
+  create = (invoiceId: uuid) =>
+
+    let invoice = getInvoice(invoiceId)
+
+    from invoice match
+      nothing |> 'Invoice not found'
+      when invoice.isCancelled |> 'Can not create receipt from cancelled invoice'
+      when (invoice.invoiceLines count) == 0 |> 'No invoice lines on invoice'
+      |> findContact(invoice.invoiceAddress.email) match
+        (contactId: text) |>
+          web.http(
+            $'{baseUrl}/api/v3/receipts'
+            {
+              method = 'POST'
+              headers = {
+                'User-Agent' -> 'Hantera'
+                'apikey' -> $'{apiKey}'
+                'Content-Type' -> 'application/json'
+              }
+              body = mapInvoice(contactId, invoice)
+            }
+          ) match
+            HttpResponseOk |> $'Exported invoice {invoice.invoiceNumber}'
+            (res: HttpResponse) |> $'Failed to export invoice {invoice.invoiceNumber}: ({res.content})'
+        // TODO Retry 5 times with 10 sec interval:
+        |> 'Contact not found'
+
+  debug = (invoiceId: uuid) =>
+
+    let invoice = getInvoice(invoiceId)
+
+    from invoice match
+      nothing |> 'Invoice not found'
+      when invoice.isCancelled |> 'Can not create receipt from cancelled invoice'
+      when (invoice.invoiceLines count) == 0 |> 'No invoice lines on invoice'
+      |> findContact(invoice.invoiceAddress.email) match
+        (contactId: text) |>
+          {
+            body = mapInvoice(contactId, invoice)
+            invoice = invoice
+          }
+        // TODO Retry 5 times with 10 sec interval:
+        |> 'Contact not found'
+}

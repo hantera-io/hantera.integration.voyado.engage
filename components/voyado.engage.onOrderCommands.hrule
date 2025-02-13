@@ -27,6 +27,12 @@ from
       now + 10 seconds // Give 10 seconds for contact to sync
     )
 
+let newInvoices =
+  input.before.invoices as _
+  join right input.order.invoices as inv on invoiceId
+  where i => i is (:nothing, :not nothing)
+  select i => i.inv
+
 from
   completedDeliveries
   select deliveryid =>
@@ -34,5 +40,15 @@ from
       'voyado.engage.orders'
       'completedDelivery'
       deliveryid
+      now + 10 seconds // Give 10 seconds for contact to sync
+    )
+
+from
+  newInvoices
+  select inv =>
+    effects.common.schedule(
+      'voyado.engage.receipts'
+      'create'
+      inv.invoiceId
       now + 10 seconds // Give 10 seconds for contact to sync
     )
