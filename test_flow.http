@@ -1,7 +1,7 @@
 @host = localhost:3300
-@orderId = e41c4536-370e-43e4-b430-8c705a7c9119
-@deliveryId = abe8ecb7-def9-418f-a69f-9f28169dd119
-@orderLineId = 5c5794f6-8e52-4837-b346-e0527d1f8119
+@orderId = e41c4536-370e-43e4-b430-8c705a7c9121
+@deliveryId = abe8ecb7-def9-418f-a69f-9f28169dd121
+@orderLineId = 5c5794f6-8e52-4837-b346-e0527d1f8121
 
 # This test assumes that shipped deliveries are released to invoicing
 
@@ -120,5 +120,5 @@ Content-Type: application/json
 Authorization: Bearer {{accessToken}}
 
 {
-    "invoiceId": "adc46334-2307-41c3-ab51-4bd24d16193f"
+    "invoiceId": "01263e46-dde6-45f3-ae36-540088a3faca"
 }

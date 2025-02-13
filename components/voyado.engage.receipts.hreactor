@@ -18,6 +18,8 @@
 
 let baseUrl |> registry->'externalServices/voyado/baseUrl'
 let apiKey |> registry->'externalServices/voyado/apiKey'
+let storeMap = registry->'externalServices/voyado/stores'
+let currencies = registry->'externalServices/voyado/currencies'
 
 let findContact(email: text) =>
   web.http(
@@ -36,10 +38,14 @@ let defaultValue (input) |> input match
   nothing |> '-'
   |> input
 
-let getStoreId(channelKey) =>
-  let map = registry->'externalServices/voyado/storeMap'
-  from map match
-    { text -> value} |> map->channelKey
+let getStoreId(channelKey) => storeMap match
+  { text -> value} |> storeMap->channelKey
+
+let getExchangeRate(currencyCode) => currencies match
+  { text -> value } |> (currencies->currencyCode) match
+    (rate: number) |> rate
+    |> 1
+  |> 1
 
 let getInvoice(invoiceId: uuid) =>
   let invoiceQuery =
@@ -140,8 +146,7 @@ let mapInvoice(contactId, invoice) =>
     createdDate = invoice.createdAt
     storeExternalId = getStoreId(invoice.order.channelKey)
     currency = invoice.order.currencyCode
-    // TODO
-    exchangeRateToGroupCurrency = 1
+    exchangeRateToGroupCurrency = getExchangeRate(invoice.order.currencyCode)
     totalGrossPrice = invoice.invoiceTotal
     paymentMethods = paymentMethods
     items = items

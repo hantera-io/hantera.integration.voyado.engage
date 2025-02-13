@@ -12,7 +12,17 @@ spec:
   isSecret: true
 ---
 # Map channelKey to Voyado Engage Store's External Id
-uri: /resources/registry/externalServices/voyado/storeMap
+uri: /resources/registry/externalServices/voyado/stores
 spec:
   value:
     myChannel: voyado-store-id
+---
+#  Exchange rates for currencies
+uri: /resources/registry/externalServices/voyado/currencies
+spec:
+  value:
+    SEK: 1
+    EUR: 11
+    DKK: 1.5
+    NOK: 1
+    USD: 11

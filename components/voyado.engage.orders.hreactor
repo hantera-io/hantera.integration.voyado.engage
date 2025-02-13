@@ -16,6 +16,7 @@
 
 let baseUrl |> registry->'externalServices/voyado/baseUrl'
 let apiKey |> registry->'externalServices/voyado/apiKey'
+let storeMap = registry->'/resources/registry/externalServices/voyado/stores'
 
 let findContact(email: text) =>
   web.http(
@@ -34,10 +35,8 @@ let defaultValue (input) |> (val) => input match
   nothing |> val
   |> input
 
-let getStoreId(channelKey) =>
-  let map = registry->'/resources/registry/externalServices/voyado/storeMap'
-  from map match
-    { } |> map->channelKey
+let getStoreId(channelKey) => storeMap match
+    { } |> storeMap->channelKey
 
 // Query used for confirmedOrder export
 let getOrder(orderId: uuid) =>
