@@ -28,6 +28,10 @@ The files in the repository is explained below:
 
   The reactor component is responsible for exporting invoices for commerce-based targeting
 
+- `/test_flow.http`
+
+  A test flow that can be used to trigger exports.
+
 ## Getting started
 
 The code contains mapping for standard features and should work out-of-the-box. To quickly get started, start by editing `config.h_manifest.yaml` and apply it to your installation using [Hantera CLI](https://developer.hantera.io/learn/hantera-cli/):
