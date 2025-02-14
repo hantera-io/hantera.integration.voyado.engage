@@ -46,12 +46,6 @@ Then apply the `h_manifest.yaml` manifest:
 h_ manage apply h_manifest.yaml
 ```
 
-The integration will fetch your Voyado Engage base URL and API key from the registry. Store them as secrets using the CLI:
-
-```bash
-
-```
-
 ## Support
 
 This integration is provided as-is, but if you have any question, you are welcome to join us on [Discord](https://discord.gg/pKUjk952U6).
