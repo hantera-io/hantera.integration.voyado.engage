@@ -16,7 +16,7 @@
 
 let baseUrl |> registry->'externalServices/voyado/baseUrl'
 let apiKey |> registry->'externalServices/voyado/apiKey'
-let storeMap = registry->'/resources/registry/externalServices/voyado/stores'
+let storeMap = registry->'externalServices/voyado/stores'
 
 let findContact(email: text) =>
   web.http(
