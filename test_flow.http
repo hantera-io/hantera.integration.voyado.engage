@@ -34,6 +34,7 @@ Authorization: Bearer {{accessToken}}
         "deliveryId": "{{deliveryId}}",
         "orderLineId": "{{orderLineId}}",
         "productNumber": "P1",
+        "description": "Test product",
         "unitPrice": 100,
         "taxFactor": 0.25,
         "quantity": 1
