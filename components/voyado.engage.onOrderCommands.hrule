@@ -1,0 +1,60 @@
+param input: OnOrderCommands
+
+let returnWhenTrue (condition: bool, result) when condition |> result
+let then (condition: bool) |> (result: value) => (condition, result) returnWhenTrue
+
+let confirmedOrder = input is {
+    before: {
+      orderState: not 'confirmed'
+    }
+    order: {
+      orderState: 'confirmed'
+    }
+  }
+
+let completedDeliveries =
+  input.before.deliveries as before
+  join right input.order.deliveries as delivery on deliveryId
+  where i => i is (:not {deliveryState: 'completed'}, :{deliveryState: 'completed'})
+  select i => i.delivery.deliveryId
+
+from
+  confirmedOrder then
+    effects.common.schedule(
+      'voyado.engage.orders'
+      'confirmedOrder'
+      {
+        orderId = input.order.orderId
+      }
+      now + 10 seconds // Give 10 seconds for contact to sync
+    )
+
+let newInvoices =
+  input.before.invoices as _
+  join right input.order.invoices as inv on invoiceId
+  where i => i is (:nothing, :not nothing)
+  select i => i.inv
+
+from
+  completedDeliveries
+  select deliveryId =>
+    effects.common.schedule(
+      'voyado.engage.orders'
+      'completedDelivery'
+      {
+        deliveryId = deliveryId
+      }
+      now + 10 seconds // Give 10 seconds for contact to sync
+    )
+
+from
+  newInvoices
+  select inv =>
+    effects.common.schedule(
+      'voyado.engage.receipts'
+      'create'
+      {
+        invoiceId = inv.invoiceId
+      }
+      now + 10 seconds // Give 10 seconds for contact to sync
+    )

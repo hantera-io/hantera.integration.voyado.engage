@@ -1,0 +1,220 @@
+/*
+ * Voyado Engage Receipts Reactor
+ *
+ * This reactor integrates with Voyado Engage's Receipts (v2) API.
+ * It exports invoices and is scheduled by the voyado.engage.orders.onOrderCommands
+ * rule. It supports purchases as well as returns.
+ *
+ * Receipts have a couple of fields that you may want to modify based on your
+ * business needs. See comments below.
+ *
+ * IMPORTANT NOTICE
+ * When testing, transactions will not immediately show up on the contact. Instead,
+ * you will see a record in Voyado Engage's Integration log along the lines of
+ * "1 Xml-file(s) generated for import". This means that Engage has queued up the
+ * transaction to be processed in the next batch, which seems to happen once per
+ * hour.
+ */
+
+let baseUrl |> registry->'externalServices/voyado/baseUrl'
+let apiKey |> registry->'externalServices/voyado/apiKey'
+let storeMap = registry->'externalServices/voyado/stores'
+let currencies = registry->'externalServices/voyado/currencies'
+
+let findContact(email: text) =>
+  web.http(
+    $'{baseUrl}/api/v3/contacts/id?email={email}'
+    {
+      headers = {
+        'User-Agent' -> 'Hantera'
+        'apikey' -> $'{apiKey}'
+        'Content-Type' -> 'application/json'
+      }
+    }
+   ) match
+    (res: HttpResponseOk) |> res.content
+
+let defaultValue (input) |> input match
+  nothing |> '-'
+  |> input
+
+let getStoreId(channelKey) => storeMap match
+  { text -> value} |> storeMap->channelKey
+
+let getExchangeRate(currencyCode) => currencies match
+  { text -> value } |> (currencies->currencyCode) match
+    (rate: number) |> rate
+    |> 1
+  |> 1
+
+let getInvoice(invoiceId: uuid) =>
+  let invoiceQuery =
+    query invoices(
+      invoiceId
+      invoiceNumber
+      isCancelled
+      invoiceAddress
+      createdAt
+      invoiceTotal
+    )
+    filter $'invoiceId == {invoiceId}'
+    navigate
+      invoiceLines(
+        invoiceLineNumber
+        invoiceLineTotal
+        unit
+        taxFactor
+        productNumber
+        description
+      )
+    navigate order(currencyCode, taxIncluded, channelKey)
+    navigate
+      paymentCaptures(amount)
+      navigate payment(providerKey)
+  from invoiceQuery match
+    QueryError |> nothing
+    |>
+      invoiceQuery
+      first
+
+let mapInvoice(contactId, invoice) =>
+
+  let paymentMethods =
+    invoice.paymentCaptures
+    select p => {
+      description = p.payment.providerKey
+      value = p.amount
+    }
+
+  let purchaseItems =
+    invoice.invoiceLines
+    where line => line.invoiceLineTotal >= 0
+    select line =>
+      let taxAmount = invoice.order.taxIncluded match
+        true |> line.invoiceLineTotal - (line.invoiceLineTotal / (1 + line.taxFactor))
+        |> line.invoiceLineTotal * line.taxFactor
+
+      from
+        {
+          type = 'PURCHASE'
+          quantity = line.unit.quantity
+          grossPaidPrice = line.invoiceLineTotal
+          taxAmount = taxAmount
+          taxPercent = line.taxFactor * 100
+          sku = line.productNumber
+          articleNumber = line.productNumber defaultValue
+          articleName = line.description defaultValue
+          // Implement your own logic as needed:
+          marginPercent = 0
+          packQuantity = 0
+          awardsBonus = false
+        }
+
+  let returnItems =
+    invoice.invoiceLines
+    where line => line.invoiceLineTotal < 0
+    select line =>
+      let taxAmount = invoice.order.taxIncluded match
+        true |> line.invoiceLineTotal - (line.invoiceLineTotal / (1 + line.taxFactor))
+        |> line.invoiceLineTotal * line.taxFactor
+
+      from
+        {
+          type = 'RETURN'
+          quantity = line.unit.quantity * -1
+          grossPaidPrice = line.invoiceLineTotal * -1
+          taxAmount = taxAmount * -1
+          taxPercent = line.taxFactor * 100
+          sku = line.productNumber
+          articleNumber = line.productNumber defaultValue
+          articleName = line.description defaultValue
+          // Implement your own logic as needed:
+          marginPercent = 0
+          packQuantity = 0
+          awardsBonus = false
+        }
+
+  let items = [purchaseItems, returnItems] flatten
+
+  from {
+    contact = {
+      matchKeyType = 'contactId'
+      matchKey = contactId
+    }
+    uniqueReceiptId = invoice.invoiceId
+    receiptNumber = invoice.invoiceNumber
+    createdDate = invoice.createdAt
+    storeExternalId = getStoreId(invoice.order.channelKey)
+    currency = invoice.order.currencyCode
+    exchangeRateToGroupCurrency = getExchangeRate(invoice.order.currencyCode)
+    totalGrossPrice = invoice.invoiceTotal
+    paymentMethods = paymentMethods
+    items = items
+  }
+
+from {
+  create = (opts: {
+    invoiceId: uuid
+    attempt: nothing|number
+  }) =>
+
+    let invoice = getInvoice(opts.invoiceId)
+
+    let retry (attempt:number) =>
+      let jobId = resources.scheduleJob(
+        'voyado.engage.receipts'
+        'create'
+        {
+          invoiceId = opts.invoiceId
+          attempt = attempt
+        }
+        now + 10 seconds
+      )
+      from $'Contact not found, retrying ({attempt}): {jobId}'
+
+    from invoice match
+      nothing |> 'Invoice not found'
+      when invoice.isCancelled |> 'Can not create receipt from cancelled invoice'
+      when (invoice.invoiceLines count) == 0 |> 'No invoice lines on invoice'
+      |> findContact(invoice.invoiceAddress.email) match
+        (contactId: text) |>
+          web.http(
+            $'{baseUrl}/api/v2/receipts'
+            {
+              method = 'POST'
+              headers = {
+                'User-Agent' -> 'Hantera'
+                'apikey' -> $'{apiKey}'
+                'Content-Type' -> 'application/json'
+              }
+              body = mapInvoice(contactId, invoice)
+            }
+          ) match
+            HttpResponseOk |> $'Exported invoice {invoice.invoiceNumber}'
+            (res: HttpResponse) |> $'Failed to export invoice {invoice.invoiceNumber}: ({res.content})'
+        |> opts.attempt match
+          nothing |> retry(2)
+          when opts.attempt < 5 |> retry (opts.attempt + 1)
+          |> 'Contact not found, giving up'
+
+  debug = (opts: {
+    invoiceId: uuid
+    attempt: nothing|number
+  }) =>
+
+    let invoice = getInvoice(opts.invoiceId)
+
+    from invoice match
+      nothing |> 'Invoice not found'
+      when invoice.isCancelled |> 'Can not create receipt from cancelled invoice'
+      when (invoice.invoiceLines count) == 0 |> 'No invoice lines on invoice'
+      |> findContact(invoice.invoiceAddress.email) match
+        (contactId: text) |>
+          {
+            attempt = opts.attempt
+            body = mapInvoice(contactId, invoice)
+            storeMap = registry->'externalServices/voyado/storeMap'
+            invoice = invoice
+          }
+        |> 'Contact not found'
+}

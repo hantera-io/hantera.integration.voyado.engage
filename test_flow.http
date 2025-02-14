@@ -1,0 +1,125 @@
+@host = localhost:3300
+@orderId = e41c4536-370e-43e4-b430-8c705a7c9121
+@deliveryId = abe8ecb7-def9-418f-a69f-9f28169dd121
+@orderLineId = 5c5794f6-8e52-4837-b346-e0527d1f8121
+
+# This test assumes that shipped deliveries are released to invoicing
+
+
+### 1. Create confirmed order:
+POST https://{{host}}/resources/actors/order/{{orderId}}
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+[
+  {
+    "type": "create",
+    "body": {
+      "currencyCode": "SEK",
+      "taxIncluded": true,
+      "commands": [{
+        "type": "setOrderState",
+        "orderState": "confirmed"
+      },{
+        "type": "setChannelKey",
+        "value": "SE"
+      },{
+        "type": "setInvoiceAddress",
+        "email": "kristoffer@hantera.io"
+      },{
+        "type": "createDelivery",
+        "deliveryId": "{{deliveryId}}"
+      },{
+        "type": "createOrderLine",
+        "deliveryId": "{{deliveryId}}",
+        "orderLineId": "{{orderLineId}}",
+        "productNumber": "P1",
+        "description": "Test product",
+        "unitPrice": 100,
+        "taxFactor": 0.25,
+        "quantity": 1
+      }]
+    }
+  }
+]
+
+### 2. Ship delivery:
+POST https://{{host}}/resources/actors/order/{{orderId}}
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+[
+  {
+    "type": "applyCommands",
+    "body": {
+      "commands": [{
+        "type": "completeDelivery",
+        "deliveryId": "{{deliveryId}}"
+      }]
+    }
+  }
+]
+
+### 3. Invoice order (should trigger receipt export):
+POST https://{{host}}/resources/actors/order/{{orderId}}
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+[
+  {
+    "type": "applyCommands",
+    "body": {
+      "commands": [{
+        "type": "invoice",
+        "mixed": false
+      }]
+    }
+  }
+]
+
+### 4. Create return:
+POST https://{{host}}/resources/actors/order/{{orderId}}
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+[
+  {
+    "type": "applyCommands",
+    "body": {
+      "commands": [{
+        "type": "createReturn",
+        "orderLineId": "{{orderLineId}}",
+        "quantity": 1,
+        "refundFactor": 1
+      }]
+    }
+  }
+]
+
+### 5. Invoice order (should trigger receipt export):
+POST https://{{host}}/resources/actors/order/{{orderId}}
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+[
+  {
+    "type": "applyCommands",
+    "body": {
+      "commands": [{
+        "type": "invoice",
+        "mixed": false
+      }]
+    }
+  }
+]
+
+
+
+### Debugging receipt export:
+POST https://{{host}}/resources/reactors/voyado.engage.receipts/invoke/debug
+Content-Type: application/json
+Authorization: Bearer {{accessToken}}
+
+{
+    "invoiceId": "01263e46-dde6-45f3-ae36-540088a3faca"
+}
