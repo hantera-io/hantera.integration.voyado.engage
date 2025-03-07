@@ -161,7 +161,7 @@ from {
     let invoice = getInvoice(opts.invoiceId)
 
     let retry (attempt:number) =>
-      let jobId = resources.scheduleJob(
+      let jobId = scheduleJob(
         'voyado.engage.receipts'
         'create'
         {

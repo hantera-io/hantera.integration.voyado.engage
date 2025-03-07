@@ -19,15 +19,15 @@ let completedDeliveries =
   select i => i.delivery.deliveryId
 
 from
-  confirmedOrder then
-    effects.common.schedule(
-      'voyado.engage.orders'
-      'confirmedOrder'
-      {
-        orderId = input.order.orderId
-      }
-      now + 10 seconds // Give 10 seconds for contact to sync
-    )
+  confirmedOrder then {
+    effect = 'scheduleJob'
+    reactorId = 'voyado.engage.orders'
+    method = 'confirmedOrder'
+    argument = {
+      orderId = input.order.orderId
+    }
+    at = now + 10 seconds // Give 10 seconds for contact to sync
+  }
 
 let newInvoices =
   input.before.invoices as _
@@ -37,24 +37,24 @@ let newInvoices =
 
 from
   completedDeliveries
-  select deliveryId =>
-    effects.common.schedule(
-      'voyado.engage.orders'
-      'completedDelivery'
-      {
-        deliveryId = deliveryId
-      }
-      now + 10 seconds // Give 10 seconds for contact to sync
-    )
+  select deliveryId => {
+    effect = 'scheduleJob'
+    reactorId = 'voyado.engage.orders'
+    method = 'completedDelivery'
+    argument = {
+      deliveryId = deliveryId
+    }
+    at = now + 10 seconds // Give 10 seconds for contact to sync
+  }
 
 from
   newInvoices
-  select inv =>
-    effects.common.schedule(
-      'voyado.engage.receipts'
-      'create'
-      {
-        invoiceId = inv.invoiceId
-      }
-      now + 10 seconds // Give 10 seconds for contact to sync
-    )
+  select inv => {
+    effect = 'scheduleJob'
+    reactorId = 'voyado.engage.receipts'
+    method = 'create'
+    argument = {
+      invoiceId = inv.invoiceId
+    }
+    at = now + 10 seconds // Give 10 seconds for contact to sync
+  }

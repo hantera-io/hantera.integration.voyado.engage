@@ -240,7 +240,7 @@ from {
     let order = getOrder(opts.orderId)
 
     let retry (attempt:number) =>
-      let jobId = resources.scheduleJob(
+      let jobId = scheduleJob(
         'voyado.engage.orders'
         'confirmedOrder'
         {
@@ -284,7 +284,7 @@ from {
     let delivery = getDelivery(opts.deliveryId)
 
     let retry (attempt:number) =>
-      let jobId = resources.scheduleJob(
+      let jobId = scheduleJob(
         'voyado.engage.orders'
         'completedDelivery'
         {
