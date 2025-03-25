@@ -2,23 +2,23 @@
 # Configuration
 ###############
 
-uri: /resources/registry/externalServices/voyado/baseUrl
+uri: /resources/registry/externalServices/voyado.engage/baseUrl
 spec:
   value: ''
 ---
-uri: /resources/registry/externalServices/voyado/apiKey
+uri: /resources/registry/externalServices/voyado.engage/apiKey
 spec:
   value: ''
   isSecret: true
 ---
 # Map channelKey to Voyado Engage Store's External Id
-uri: /resources/registry/externalServices/voyado/stores
+uri: /resources/registry/externalServices/voyado.engage/stores
 spec:
   value:
     myChannel: voyado-store-id
 ---
 #  Exchange rates for currencies
-uri: /resources/registry/externalServices/voyado/currencies
+uri: /resources/registry/externalServices/voyado.engage/currencies
 spec:
   value:
     SEK: 1

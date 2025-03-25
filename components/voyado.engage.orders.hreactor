@@ -14,9 +14,9 @@
  * by starting automating when "Order status = Shipped".
  */
 
-let baseUrl |> registry->'externalServices/voyado/baseUrl'
-let apiKey |> registry->'externalServices/voyado/apiKey'
-let storeMap = registry->'externalServices/voyado/stores'
+let baseUrl |> registry->'externalServices/voyado.engage/baseUrl'
+let apiKey |> registry->'externalServices/voyado.engage/apiKey'
+let storeMap = registry->'externalServices/voyado.engage/stores'
 
 let findContact(email: text) =>
   web.http(

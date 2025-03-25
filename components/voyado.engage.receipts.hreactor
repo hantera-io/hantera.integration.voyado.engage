@@ -16,10 +16,10 @@
  * hour.
  */
 
-let baseUrl |> registry->'externalServices/voyado/baseUrl'
-let apiKey |> registry->'externalServices/voyado/apiKey'
-let storeMap = registry->'externalServices/voyado/stores'
-let currencies = registry->'externalServices/voyado/currencies'
+let baseUrl |> registry->'externalServices/voyado.engage/baseUrl'
+let apiKey |> registry->'externalServices/voyado.engage/apiKey'
+let storeMap = registry->'externalServices/voyado.engage/stores'
+let currencies = registry->'externalServices/voyado.engage/currencies'
 
 let findContact(email: text) =>
   web.http(
@@ -82,13 +82,13 @@ let mapInvoice(contactId, invoice) =>
   let paymentMethods =
     invoice.paymentCaptures
     select p => {
-      description = p.payment.providerKey
+      type = p.payment.providerKey
       value = p.amount
     }
 
   let purchaseItems =
     invoice.invoiceLines
-    where line => line.invoiceLineTotal >= 0
+    where line => line is { unit: { quantity: number } } and line.unit.quantity > 0
     select line =>
       let taxAmount = invoice.order.taxIncluded match
         true |> line.invoiceLineTotal - (line.invoiceLineTotal / (1 + line.taxFactor))
@@ -110,9 +110,10 @@ let mapInvoice(contactId, invoice) =>
           awardsBonus = false
         }
 
+  // Voyado Engage doesn't support compensations (all receipts must have a quantity), so we only report actual returns and not compensations/refunds
   let returnItems =
     invoice.invoiceLines
-    where line => line.invoiceLineTotal < 0
+    where line => line is { unit: { quantity: number } } and line.unit.quantity < 0
     select line =>
       let taxAmount = invoice.order.taxIncluded match
         true |> line.invoiceLineTotal - (line.invoiceLineTotal / (1 + line.taxFactor))
@@ -121,7 +122,9 @@ let mapInvoice(contactId, invoice) =>
       from
         {
           type = 'RETURN'
-          quantity = line.unit.quantity * -1
+          quantity = line.unit match
+            { quantity: number } |> line.unit.quantity * -1
+            |> 1
           grossPaidPrice = line.invoiceLineTotal * -1
           taxAmount = taxAmount * -1
           taxPercent = line.taxFactor * 100
@@ -136,21 +139,22 @@ let mapInvoice(contactId, invoice) =>
 
   let items = [purchaseItems, returnItems] flatten
 
-  from {
-    contact = {
-      matchKeyType = 'contactId'
-      matchKey = contactId
+  from match
+    when items count > 0 |> {
+      contact = {
+        matchKeyType = 'contactId'
+        matchKey = contactId
+      }
+      uniqueReceiptId = invoice.invoiceId
+      receiptNumber = invoice.invoiceNumber
+      createdDate = invoice.createdAt
+      storeExternalId = getStoreId(invoice.order.channelKey)
+      currency = invoice.order.currencyCode
+      exchangeRateToGroupCurrency = getExchangeRate(invoice.order.currencyCode)
+      totalGrossPrice = invoice.invoiceTotal
+      paymentMethods = paymentMethods
+      items = items
     }
-    uniqueReceiptId = invoice.invoiceId
-    receiptNumber = invoice.invoiceNumber
-    createdDate = invoice.createdAt
-    storeExternalId = getStoreId(invoice.order.channelKey)
-    currency = invoice.order.currencyCode
-    exchangeRateToGroupCurrency = getExchangeRate(invoice.order.currencyCode)
-    totalGrossPrice = invoice.invoiceTotal
-    paymentMethods = paymentMethods
-    items = items
-  }
 
 from {
   create = (opts: {
@@ -178,20 +182,24 @@ from {
       when (invoice.invoiceLines count) == 0 |> 'No invoice lines on invoice'
       |> findContact(invoice.invoiceAddress.email) match
         (contactId: text) |>
-          web.http(
-            $'{baseUrl}/api/v2/receipts'
-            {
-              method = 'POST'
-              headers = {
-                'User-Agent' -> 'Hantera'
-                'apikey' -> $'{apiKey}'
-                'Content-Type' -> 'application/json'
+          let mappedInvoice = mapInvoice(contactId, invoice)
+
+          from mappedInvoice match
+            nothing |> 'Invoice had no mappable lines'
+            |> web.http(
+              $'{baseUrl}/api/v2/receipts'
+              {
+                method = 'POST'
+                headers = {
+                  'User-Agent' -> 'Hantera'
+                  'apikey' -> $'{apiKey}'
+                  'Content-Type' -> 'application/json'
+                }
+                body = mappedInvoice
               }
-              body = mapInvoice(contactId, invoice)
-            }
-          ) match
-            HttpResponseOk |> $'Exported invoice {invoice.invoiceNumber}'
-            (res: HttpResponse) |> $'Failed to export invoice {invoice.invoiceNumber}: ({res.content})'
+            ) match
+              HttpResponseOk |> $'Exported invoice {invoice.invoiceNumber}'
+              (res: HttpResponse) |> $'Failed to export invoice {invoice.invoiceNumber}: ({res.content})'
         |> opts.attempt match
           nothing |> retry(2)
           when opts.attempt < 5 |> retry (opts.attempt + 1)
