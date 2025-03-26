@@ -77,7 +77,34 @@ let getInvoice(invoiceId: uuid) =>
       invoiceQuery
       first
 
-let mapInvoice(contactId, invoice) =>
+let mapInvoice(contactId, invoice: {
+  invoiceId: uuid
+  invoiceNumber: text
+  createdAt: instant
+  invoiceTotal: number
+  paymentCaptures: [{
+    amount: number
+    payment: {
+      providerKey: text
+    }
+  }]
+  invoiceLines: [{
+    unit: nothing|{
+      quantity: number
+      value: number
+      label: nothing|text
+    }
+    invoiceLineTotal: number
+    taxFactor: number
+    productNumber: nothing|text
+    description: nothing|text
+  }]
+  order: {
+    taxIncluded: bool
+    channelKey: text
+    currencyCode: text
+  }
+}) =>
 
   let paymentMethods =
     invoice.paymentCaptures
@@ -88,7 +115,7 @@ let mapInvoice(contactId, invoice) =>
 
   let purchaseItems =
     invoice.invoiceLines
-    where line => line is { unit: { quantity: number } } and line.unit.quantity > 0
+    where line => line.invoiceLineTotal > 0
     select line =>
       let taxAmount = invoice.order.taxIncluded match
         true |> line.invoiceLineTotal - (line.invoiceLineTotal / (1 + line.taxFactor))
@@ -97,11 +124,13 @@ let mapInvoice(contactId, invoice) =>
       from
         {
           type = 'PURCHASE'
-          quantity = line.unit.quantity
+          quantity = line.unit match
+            not nothing |> unit.quantity
+            nothing |> 1
           grossPaidPrice = line.invoiceLineTotal
           taxAmount = taxAmount
           taxPercent = line.taxFactor * 100
-          sku = line.productNumber
+          sku = line.productNumber defaultValue
           articleNumber = line.productNumber defaultValue
           articleName = line.description defaultValue
           // Implement your own logic as needed:
@@ -110,10 +139,9 @@ let mapInvoice(contactId, invoice) =>
           awardsBonus = false
         }
 
-  // Voyado Engage doesn't support compensations (all receipts must have a quantity), so we only report actual returns and not compensations/refunds
   let returnItems =
     invoice.invoiceLines
-    where line => line is { unit: { quantity: number } } and line.unit.quantity < 0
+    where line => line.invoiceLineTotal < 0
     select line =>
       let taxAmount = invoice.order.taxIncluded match
         true |> line.invoiceLineTotal - (line.invoiceLineTotal / (1 + line.taxFactor))
@@ -123,12 +151,12 @@ let mapInvoice(contactId, invoice) =>
         {
           type = 'RETURN'
           quantity = line.unit match
-            { quantity: number } |> line.unit.quantity * -1
-            |> 1
+            not nothing |> line.unit.quantity * -1
+            nothing |> 1
           grossPaidPrice = line.invoiceLineTotal * -1
           taxAmount = taxAmount * -1
           taxPercent = line.taxFactor * 100
-          sku = line.productNumber
+          sku = line.productNumber defaultValue
           articleNumber = line.productNumber defaultValue
           articleName = line.description defaultValue
           // Implement your own logic as needed:
@@ -139,8 +167,7 @@ let mapInvoice(contactId, invoice) =>
 
   let items = [purchaseItems, returnItems] flatten
 
-  from match
-    when items count > 0 |> {
+  from {
       contact = {
         matchKeyType = 'contactId'
         matchKey = contactId
@@ -184,22 +211,20 @@ from {
         (contactId: text) |>
           let mappedInvoice = mapInvoice(contactId, invoice)
 
-          from mappedInvoice match
-            nothing |> 'Invoice had no mappable lines'
-            |> web.http(
-              $'{baseUrl}/api/v2/receipts'
-              {
-                method = 'POST'
-                headers = {
-                  'User-Agent' -> 'Hantera'
-                  'apikey' -> $'{apiKey}'
-                  'Content-Type' -> 'application/json'
-                }
-                body = mappedInvoice
+          from web.http(
+            $'{baseUrl}/api/v2/receipts'
+            {
+              method = 'POST'
+              headers = {
+                'User-Agent' -> 'Hantera'
+                'apikey' -> $'{apiKey}'
+                'Content-Type' -> 'application/json'
               }
-            ) match
-              HttpResponseOk |> $'Exported invoice {invoice.invoiceNumber}'
-              (res: HttpResponse) |> $'Failed to export invoice {invoice.invoiceNumber}: ({res.content})'
+              body = mappedInvoice
+            }
+          ) match
+            HttpResponseOk |> $'Exported invoice {invoice.invoiceNumber}'
+            (res: HttpResponse) |> $'Failed to export invoice {invoice.invoiceNumber}: ({res.content})'
         |> opts.attempt match
           nothing |> retry(2)
           when opts.attempt < 5 |> retry (opts.attempt + 1)
@@ -221,7 +246,7 @@ from {
           {
             attempt = opts.attempt
             body = mapInvoice(contactId, invoice)
-            storeMap = registry->'externalServices/voyado/storeMap'
+            storeMap = registry->'externalServices/voyado.engage/stores'
             invoice = invoice
           }
         |> 'Contact not found'
